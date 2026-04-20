@@ -1,0 +1,65 @@
+name: OPA Policy Check
+
+on:
+  pull_request:
+    paths:
+      - '**.tf'
+      - 'policies/**'
+
+jobs:
+  policy-check:
+    name: Terraform Plan + OPA Evaluation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.0
+
+      - name: Install OPA
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static
+          chmod +x opa
+          sudo mv opa /usr/local/bin/opa
+          opa version
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ${{ github.workspace }}
+
+      - name: Terraform Plan
+        run: |
+          terraform plan -out=tfplan.binary
+          terraform show -json tfplan.binary > tfplan.json
+        working-directory: ${{ github.workspace }}
+
+      - name: Run OPA Unit Tests
+        run: opa test ./policies -v
+
+      - name: Evaluate AWS Policies
+        run: |
+          opa eval \
+            --input tfplan.json \
+            --data policies/aws/ \
+            --format pretty \
+            "data.terraform.aws"
+
+      - name: Evaluate Azure Policies
+        run: |
+          opa eval \
+            --input tfplan.json \
+            --data policies/azure/ \
+            --format pretty \
+            "data.terraform.azure"
+
+      - name: Evaluate GCP Policies
+        run: |
+          opa eval \
+            --input tfplan.json \
+            --data policies/gcp/ \
+            --format pretty \
+            "data.terraform.gcp"
